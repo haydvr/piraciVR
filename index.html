@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Supabase File Vault</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+body {
+  background:#0b0f19;
+  color:#e5e7eb;
+  font-family:Arial, sans-serif;
+  padding:20px;
+}
+.card {
+  background:#111827;
+  padding:15px;
+  border-radius:8px;
+  margin-bottom:20px;
+  border:1px solid #1f2937;
+}
+button {
+  background:#4f46e5;
+  color:white;
+  border:none;
+  padding:8px 14px;
+  border-radius:5px;
+  cursor:pointer;
+}
+button.secondary {
+  background:#374151;
+}
+input[type="file"] {
+  margin-top:10px;
+}
+.search {
+  width:100%;
+  padding:8px;
+  margin-top:10px;
+  border-radius:5px;
+  border:1px solid #374151;
+  background:#0b0f19;
+  color:white;
+}
+.file-list {
+  max-height:60vh;
+  overflow-y:auto;
+  margin-top:10px;
+}
+.file-item {
+  display:flex;
+  justify-content:space-between;
+  padding:8px 0;
+  border-bottom:1px solid #1f2937;
+}
+.file-meta {
+  font-size:12px;
+  color:#9ca3af;
+}
+</style>
+</head>
+
+<body>
+
+<h1>Supabase File Vault</h1>
+
+<div class="card">
+  <h3>Upload File</h3>
+  <input type="file" id="fileInput">
+  <br><br>
+  <button id="uploadBtn">Upload</button>
+  <div id="uploadStatus"></div>
+</div>
+
+<div class="card">
+  <h3>Files</h3>
+  <input class="search" id="searchInput" placeholder="Search files...">
+  <div id="listStatus"></div>
+  <div class="file-list" id="fileList"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<script>
+// ------------------------------
+// 1. SUPABASE CONFIG
+// ------------------------------
+const SUPABASE_URL = "https://zuwjgaswznjzdejenbps.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp1d2pnYXN3em5qemRlamVuYnBzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyODk1MTIsImV4cCI6MjA4OTg2NTUxMn0.6Z7F9bMeDSUy1PCwJQ9vAqC_1KW2mmkWH_KztRX8vrw";
+const BUCKET = "files";
+
+const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ------------------------------
+// 2. UPLOAD
+// ------------------------------
+async function uploadFile() {
+  const fileInput = document.getElementById("fileInput");
+  const status = document.getElementById("uploadStatus");
+
+  if (!fileInput.files.length) {
+    status.textContent = "No file selected.";
+    return;
+  }
+
+  const file = fileInput.files[0];
+  const safeName = Date.now() + "_" + file.name.replace(/[^\w.\-]+/g, "_");
+
+  status.textContent = "Uploading...";
+
+  const { error } = await supabase.storage
+    .from(BUCKET)
+    .upload(safeName, file);
+
+  if (error) {
+    status.textContent = "Upload failed: " + error.message;
+  } else {
+    status.textContent = "Uploaded!";
+    fileInput.value = "";
+    loadFiles();
+  }
+}
+
+// ------------------------------
+// 3. LIST FILES
+// ------------------------------
+let allFiles = [];
+
+async function loadFiles() {
+  const listStatus = document.getElementById("listStatus");
+  const fileList = document.getElementById("fileList");
+
+  listStatus.textContent = "Loading...";
+  fileList.innerHTML = "";
+
+  const { data, error } = await supabase.storage
+    .from(BUCKET)
+    .list("", { limit: 10000 });
+
+  if (error) {
+    listStatus.textContent = "Error loading files.";
+    return;
+  }
+
+  allFiles = data;
+  listStatus.textContent = allFiles.length + " files";
+  renderFiles();
+}
+
+// ------------------------------
+// 4. RENDER + SEARCH
+// ------------------------------
+function renderFiles() {
+  const search = document.getElementById("searchInput").value.toLowerCase();
+  const fileList = document.getElementById("fileList");
+
+  fileList.innerHTML = "";
+
+  const filtered = allFiles.filter(f => f.name.toLowerCase().includes(search));
+
+  filtered.forEach(file => {
+    const row = document.createElement("div");
+    row.className = "file-item";
+
+    const left = document.createElement("div");
+    left.innerHTML = `
+      <strong>${file.name}</strong><br>
+      <span class="file-meta">${(file.metadata?.size/1024 || 0).toFixed(1)} KB</span>
+    `;
+
+    const btn = document.createElement("button");
+    btn.className = "secondary";
+    btn.textContent = "Download";
+    btn.onclick = async () => {
+      const { data } = supabase.storage.from(BUCKET).getPublicUrl(file.name);
+      window.open(data.publicUrl, "_blank");
+    };
+
+    row.appendChild(left);
+    row.appendChild(btn);
+    fileList.appendChild(row);
+  });
+}
+
+// ------------------------------
+// 5. EVENTS
+// ------------------------------
+document.getElementById("uploadBtn").onclick = uploadFile;
+document.getElementById("searchInput").oninput = renderFiles;
+
+loadFiles();
+</script>
+
+</body>
+</html>
