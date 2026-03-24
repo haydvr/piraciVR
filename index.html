@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>IPFS File Vault</title>
+<title>Catbox File Vault</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <style>
@@ -14,33 +14,36 @@ body {
 }
 .card {
   background:#111827;
-  padding:15px;
-  border-radius:8px;
-  margin-bottom:20px;
-  border:1px solid #1f2937;
+  padding:20px;
+  border-radius:10px;
+  margin-bottom:25px;
+  border:2px solid #1f2937;
 }
 button {
   background:#4f46e5;
   color:white;
   border:none;
-  padding:8px 14px;
-  border-radius:5px;
+  padding:12px 20px;
+  border-radius:6px;
   cursor:pointer;
+  font-size:16px;
 }
 button.secondary {
   background:#374151;
 }
 input[type="file"] {
   margin-top:10px;
+  font-size:16px;
 }
 .search {
   width:100%;
-  padding:8px;
+  padding:10px;
   margin-top:10px;
-  border-radius:5px;
+  border-radius:6px;
   border:1px solid #374151;
   background:#0b0f19;
   color:white;
+  font-size:16px;
 }
 .file-list {
   max-height:60vh;
@@ -50,7 +53,7 @@ input[type="file"] {
 .file-item {
   display:flex;
   justify-content:space-between;
-  padding:8px 0;
+  padding:10px 0;
   border-bottom:1px solid #1f2937;
 }
 .file-meta {
@@ -62,27 +65,89 @@ input[type="file"] {
 
 <body>
 
-<h1>IPFS File Vault</h1>
+<h1>Catbox File Vault</h1>
 
-<div class="card">
-  <h3>Upload File</h3>
+<div class="card" style="border-color:#4f46e5;">
+  <h2 style="margin-top:0;">Upload File</h2>
+
   <input type="file" id="fileInput">
   <br><br>
-  <button id="uploadBtn">Upload</button>
-  <div id="uploadStatus"></div>
+
+  <button id="uploadBtn">🚀 Upload to Catbox</button>
+
+  <div id="uploadStatus" style="margin-top:10px; font-size:14px;"></div>
 </div>
 
 <div class="card">
-  <h3>Uploaded Files</h3>
+  <h2 style="margin-top:0;">Files</h2>
+
   <input class="search" id="searchInput" placeholder="Search files...">
+
   <div class="file-list" id="fileList"></div>
 </div>
 
 <script>
-// Local list of uploaded files
-let files = [];
+// ====== CONFIG – EDIT THESE TWO ======
+const GITHUB_USER = "YOUR_GITHUB_USERNAME_HERE";
+const GITHUB_REPO = GITHUB_USER + ".github.io";
+const GITHUB_TOKEN = "YOUR_GITHUB_TOKEN_HERE"; // keep private
+const FILES_PATH = "files.json";
+// =====================================
 
-// Upload to IPFS via nft.storage public endpoint
+let currentFiles = [];
+let currentSha = null;
+
+// Load files.json via GitHub API (to get content + sha)
+async function loadFiles() {
+  const res = await fetch(
+    `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/contents/${FILES_PATH}`
+  );
+  if (!res.ok) {
+    console.error("Failed to load files.json");
+    return [];
+  }
+  const json = await res.json();
+  currentSha = json.sha;
+  const content = atob(json.content.replace(/\n/g, ""));
+  try {
+    currentFiles = JSON.parse(content);
+  } catch (e) {
+    currentFiles = [];
+  }
+  return currentFiles;
+}
+
+// Save files.json via GitHub API
+async function saveFiles(files) {
+  const newContent = btoa(JSON.stringify(files, null, 2));
+
+  const res = await fetch(
+    `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/contents/${FILES_PATH}`,
+    {
+      method: "PUT",
+      headers: {
+        "Authorization": `Bearer ${GITHUB_TOKEN}`,
+        "Accept": "application/vnd.github+json"
+      },
+      body: JSON.stringify({
+        message: "Update files.json",
+        content: newContent,
+        sha: currentSha
+      })
+    }
+  );
+
+  if (!res.ok) {
+    console.error("Failed to save files.json");
+    alert("Error saving file list to GitHub.");
+    return;
+  }
+
+  const json = await res.json();
+  currentSha = json.content.sha;
+}
+
+// Upload to Catbox
 async function uploadFile() {
   const fileInput = document.getElementById("fileInput");
   const status = document.getElementById("uploadStatus");
@@ -93,69 +158,90 @@ async function uploadFile() {
   }
 
   const file = fileInput.files[0];
-  status.textContent = "Uploading to IPFS...";
+  status.textContent = "Uploading to Catbox...";
 
   const formData = new FormData();
-  formData.append("file", file);
+  formData.append("reqtype", "fileupload");
+  formData.append("fileToUpload", file);
 
-  const res = await fetch("https://api.nft.storage/upload", {
-    method: "POST",
-    body: formData
-  });
+  try {
+    const res = await fetch("https://catbox.moe/user/api.php", {
+      method: "POST",
+      body: formData
+    });
 
-  const json = await res.json();
+    const url = (await res.text()).trim();
 
-  if (!json.ok) {
-    status.textContent = "Upload failed.";
-    return;
+    if (!url.startsWith("http")) {
+      status.textContent = "Upload failed: " + url;
+      return;
+    }
+
+    status.textContent = "Uploaded!";
+
+    currentFiles.push({
+      name: file.name,
+      url: url,
+      size: file.size,
+      uploaded: Date.now()
+    });
+
+    await saveFiles(currentFiles);
+
+    fileInput.value = "";
+    renderFiles();
+
+  } catch (err) {
+    console.error(err);
+    status.textContent = "Upload error.";
   }
-
-  const cid = json.value.cid;
-  const url = `https://ipfs.io/ipfs/${cid}`;
-
-  files.push({
-    name: file.name,
-    cid: cid,
-    url: url,
-    size: file.size
-  });
-
-  status.textContent = "Uploaded!";
-  fileInput.value = "";
-  renderFiles();
 }
 
+// Render file list
 function renderFiles() {
   const search = document.getElementById("searchInput").value.toLowerCase();
   const fileList = document.getElementById("fileList");
 
   fileList.innerHTML = "";
 
-  const filtered = files.filter(f => f.name.toLowerCase().includes(search));
+  const filtered = currentFiles.filter(f =>
+    f.name.toLowerCase().includes(search)
+  );
 
-  filtered.forEach(file => {
-    const row = document.createElement("div");
-    row.className = "file-item";
+  filtered
+    .slice()
+    .sort((a, b) => b.uploaded - a.uploaded)
+    .forEach(file => {
+      const row = document.createElement("div");
+      row.className = "file-item";
 
-    const left = document.createElement("div");
-    left.innerHTML = `
-      <strong>${file.name}</strong><br>
-      <span class="file-meta">${(file.size/1024).toFixed(1)} KB</span>
-    `;
+      const left = document.createElement("div");
+      left.innerHTML = `
+        <strong>${file.name}</strong><br>
+        <span class="file-meta">
+          ${(file.size/1024).toFixed(1)} KB •
+          ${new Date(file.uploaded).toLocaleString()}
+        </span>
+      `;
 
-    const btn = document.createElement("button");
-    btn.className = "secondary";
-    btn.textContent = "Open";
-    btn.onclick = () => window.open(file.url, "_blank");
+      const btn = document.createElement("button");
+      btn.className = "secondary";
+      btn.textContent = "Open";
+      btn.onclick = () => window.open(file.url, "_blank");
 
-    row.appendChild(left);
-    row.appendChild(btn);
-    fileList.appendChild(row);
-  });
+      row.appendChild(left);
+      row.appendChild(btn);
+      fileList.appendChild(row);
+    });
 }
 
+// Init
+loadFiles().then(() => {
+  renderFiles();
+  document.getElementById("searchInput").oninput = renderFiles;
+});
+
 document.getElementById("uploadBtn").onclick = uploadFile;
-document.getElementById("searchInput").oninput = renderFiles;
 </script>
 
 </body>
