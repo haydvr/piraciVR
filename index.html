@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Supabase File Vault</title>
+<title>IPFS File Vault</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <style>
@@ -62,7 +62,7 @@ input[type="file"] {
 
 <body>
 
-<h1>Supabase File Vault</h1>
+<h1>IPFS File Vault</h1>
 
 <div class="card">
   <h3>Upload File</h3>
@@ -73,30 +73,16 @@ input[type="file"] {
 </div>
 
 <div class="card">
-  <h3>Files</h3>
+  <h3>Uploaded Files</h3>
   <input class="search" id="searchInput" placeholder="Search files...">
-  <div id="listStatus"></div>
   <div class="file-list" id="fileList"></div>
 </div>
 
-<!-- Supabase library (unpkg = NOT blocked by Edge) -->
-<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
-
 <script>
-// ------------------------------
-// 1. SUPABASE CONFIG
-// ------------------------------
-// Replace these with YOUR values:
-const SUPABASE_URL = "https://zuwjgaswznjzdejenbps.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp1d2pnYXN3em5qemRlamVuYnBzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyODk1MTIsImV4cCI6MjA4OTg2NTUxMn0.6Z7F9bMeDSUy1PCwJQ9vAqC_1KW2mmkWH_KztRX8vrw";
-const BUCKET = "files";
+// Local list of uploaded files
+let files = [];
 
-// Create Supabase client (only once)
-const client = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-
-// ------------------------------
-// 2. UPLOAD
-// ------------------------------
+// Upload to IPFS via nft.storage public endpoint
 async function uploadFile() {
   const fileInput = document.getElementById("fileInput");
   const status = document.getElementById("uploadStatus");
@@ -107,59 +93,45 @@ async function uploadFile() {
   }
 
   const file = fileInput.files[0];
-  const safeName = Date.now() + "_" + file.name.replace(/[^\w.\-]+/g, "_");
+  status.textContent = "Uploading to IPFS...";
 
-  status.textContent = "Uploading...";
+  const formData = new FormData();
+  formData.append("file", file);
 
-  const { error } = await client.storage
-    .from(BUCKET)
-    .upload(safeName, file);
+  const res = await fetch("https://api.nft.storage/upload", {
+    method: "POST",
+    body: formData
+  });
 
-  if (error) {
-    status.textContent = "Upload failed: " + error.message;
-  } else {
-    status.textContent = "Uploaded!";
-    fileInput.value = "";
-    loadFiles();
-  }
-}
+  const json = await res.json();
 
-// ------------------------------
-// 3. LIST FILES
-// ------------------------------
-let allFiles = [];
-
-async function loadFiles() {
-  const listStatus = document.getElementById("listStatus");
-  const fileList = document.getElementById("fileList");
-
-  listStatus.textContent = "Loading...";
-  fileList.innerHTML = "";
-
-  const { data, error } = await client.storage
-    .from(BUCKET)
-    .list("", { limit: 10000 });
-
-  if (error) {
-    listStatus.textContent = "Error loading files.";
+  if (!json.ok) {
+    status.textContent = "Upload failed.";
     return;
   }
 
-  allFiles = data;
-  listStatus.textContent = allFiles.length + " files";
+  const cid = json.value.cid;
+  const url = `https://ipfs.io/ipfs/${cid}`;
+
+  files.push({
+    name: file.name,
+    cid: cid,
+    url: url,
+    size: file.size
+  });
+
+  status.textContent = "Uploaded!";
+  fileInput.value = "";
   renderFiles();
 }
 
-// ------------------------------
-// 4. RENDER + SEARCH
-// ------------------------------
 function renderFiles() {
   const search = document.getElementById("searchInput").value.toLowerCase();
   const fileList = document.getElementById("fileList");
 
   fileList.innerHTML = "";
 
-  const filtered = allFiles.filter(f => f.name.toLowerCase().includes(search));
+  const filtered = files.filter(f => f.name.toLowerCase().includes(search));
 
   filtered.forEach(file => {
     const row = document.createElement("div");
@@ -168,16 +140,13 @@ function renderFiles() {
     const left = document.createElement("div");
     left.innerHTML = `
       <strong>${file.name}</strong><br>
-      <span class="file-meta">${((file.metadata?.size || 0)/1024).toFixed(1)} KB</span>
+      <span class="file-meta">${(file.size/1024).toFixed(1)} KB</span>
     `;
 
     const btn = document.createElement("button");
     btn.className = "secondary";
-    btn.textContent = "Download";
-    btn.onclick = async () => {
-      const { data } = client.storage.from(BUCKET).getPublicUrl(file.name);
-      window.open(data.publicUrl, "_blank");
-    };
+    btn.textContent = "Open";
+    btn.onclick = () => window.open(file.url, "_blank");
 
     row.appendChild(left);
     row.appendChild(btn);
@@ -185,13 +154,8 @@ function renderFiles() {
   });
 }
 
-// ------------------------------
-// 5. EVENTS
-// ------------------------------
 document.getElementById("uploadBtn").onclick = uploadFile;
 document.getElementById("searchInput").oninput = renderFiles;
-
-loadFiles();
 </script>
 
 </body>
